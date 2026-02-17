@@ -100,13 +100,23 @@ export function useVoicePipeline(settings: Settings) {
         setState((s) => ({ ...s, agentEvents: [...s.agentEvents, event] }));
 
         if (event.type === 'text') {
-          setState((s) => ({
-            ...s,
-            transcript: [
-              ...s.transcript,
-              { role: 'agent', text: event.content, timestamp: event.timestamp },
-            ],
-          }));
+          setState((s) => {
+            const last = s.transcript[s.transcript.length - 1];
+            // Update existing agent message instead of adding a new one each stream chunk
+            if (last && last.role === 'agent') {
+              const updated = [...s.transcript];
+              updated[updated.length - 1] = { ...last, text: event.content };
+              return { ...s, transcript: updated };
+            }
+            // First text chunk — add a new agent entry
+            return {
+              ...s,
+              transcript: [
+                ...s.transcript,
+                { role: 'agent', text: event.content, timestamp: event.timestamp },
+              ],
+            };
+          });
         }
 
         if (event.type === 'done') {
