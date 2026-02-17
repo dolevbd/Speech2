@@ -2,19 +2,27 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
+// Whether to use the Claude Agent SDK (full code agent) vs Messages API (chat only).
+// SDK requires the claude-agent-sdk package and spawns a local Claude Code process.
+const USE_AGENT_SDK = process.env.USE_AGENT_SDK !== 'false';
+
 /**
  * GET /api/agent — health check for agent connectivity
  */
 export async function GET() {
   const configured = !!ANTHROPIC_API_KEY;
-  return NextResponse.json({ ok: configured, provider: configured ? 'anthropic' : 'mock' });
+  return NextResponse.json({
+    ok: configured,
+    provider: configured ? (USE_AGENT_SDK ? 'claude-agent-sdk' : 'anthropic-messages') : 'mock',
+  });
 }
 
 /**
  * POST /api/agent — send a message to Claude and stream agent events back via SSE.
  *
- * Uses the Anthropic Messages API with streaming. The response is formatted as
- * Server-Sent Events so the client can process events incrementally.
+ * Two modes:
+ * 1. Claude Agent SDK (default): Full code agent with file read/edit, bash, etc.
+ * 2. Anthropic Messages API (fallback): Chat-only, no tool use.
  */
 export async function POST(req: NextRequest) {
   if (!ANTHROPIC_API_KEY) {
@@ -22,7 +30,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { message, systemPrompt, repoContext } = (await req.json()) as {
+    const { message, systemPrompt, repoContext, sessionId } = (await req.json()) as {
       message: string;
       systemPrompt?: string;
       repoContext?: { owner: string; repo: string; branch?: string };
@@ -36,112 +44,270 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Build system prompt with repo context
-    let system = systemPrompt || 'You are Claude Code, an AI coding agent.';
-    if (repoContext) {
-      system += `\n\nRepository context: ${repoContext.owner}/${repoContext.repo}`;
-      if (repoContext.branch) system += ` (branch: ${repoContext.branch})`;
+    if (USE_AGENT_SDK) {
+      return handleWithAgentSDK(message, systemPrompt, repoContext, sessionId);
     }
+    return handleWithMessagesAPI(message, systemPrompt, repoContext);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
 
-    // Call Anthropic Messages API with streaming
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 2048,
-        system,
-        messages: [{ role: 'user', content: message }],
-        stream: true,
-      }),
-    });
+// ─── Claude Agent SDK Mode ───
 
-    if (!res.ok) {
-      const errText = await res.text();
-      return NextResponse.json(
-        { error: `Anthropic API error: ${errText}` },
-        { status: res.status }
-      );
-    }
+async function handleWithAgentSDK(
+  message: string,
+  systemPrompt?: string,
+  repoContext?: { owner: string; repo: string; branch?: string },
+  sessionId?: string
+) {
+  const { query } = await import('@anthropic-ai/claude-agent-sdk');
 
-    // Transform Anthropic SSE stream into our AgentEvent SSE stream
-    const encoder = new TextEncoder();
-    const decoder = new TextDecoder();
+  // Build system prompt
+  let system = systemPrompt || 'You are Claude Code, an AI coding agent. Keep responses concise.';
+  if (repoContext) {
+    system += `\n\nRepository context: ${repoContext.owner}/${repoContext.repo}`;
+    if (repoContext.branch) system += ` (branch: ${repoContext.branch})`;
+  }
 
-    const stream = new ReadableStream({
-      async start(controller) {
-        const reader = res.body!.getReader();
-        let buffer = '';
-        let fullText = '';
+  const encoder = new TextEncoder();
 
-        // Send initial thinking event
-        controller.enqueue(
-          encoder.encode(
-            `data: ${JSON.stringify({ type: 'thinking', content: '', timestamp: Date.now() })}\n\n`
-          )
-        );
+  const stream = new ReadableStream({
+    async start(controller) {
+      const emit = (data: Record<string, unknown>) => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+      };
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+      try {
+        emit({ type: 'thinking', content: '', timestamp: Date.now() });
 
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() ?? '';
+        const result = query({
+          prompt: message,
+          options: {
+            systemPrompt: {
+              type: 'preset',
+              preset: 'claude_code',
+              append: system,
+            },
+            // Full code agent tools
+            allowedTools: ['Read', 'Edit', 'Write', 'Bash', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
+            permissionMode: 'acceptEdits',
+            maxTurns: 15,
+            maxBudgetUsd: 1.0,
+            includePartialMessages: false,
+            persistSession: true,
+            ...(sessionId ? { resume: sessionId } : {}),
+            env: {
+              ...process.env as Record<string, string>,
+              ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY!,
+            },
+          },
+        });
 
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            const data = line.slice(6).trim();
-            if (data === '[DONE]') continue;
+        let finalText = '';
 
-            try {
-              const event = JSON.parse(data);
+        for await (const msg of result) {
+          switch (msg.type) {
+            case 'system': {
+              if (msg.subtype === 'init') {
+                emit({
+                  type: 'system_init',
+                  content: `Session: ${msg.session_id}`,
+                  sessionId: msg.session_id,
+                  model: msg.model,
+                  tools: msg.tools,
+                  timestamp: Date.now(),
+                });
+              }
+              break;
+            }
 
-              // Extract text deltas from content_block_delta events
-              if (
-                event.type === 'content_block_delta' &&
-                event.delta?.type === 'text_delta'
-              ) {
-                fullText += event.delta.text;
-                controller.enqueue(
-                  encoder.encode(
-                    `data: ${JSON.stringify({
-                      type: 'text',
-                      content: fullText,
+            case 'assistant': {
+              // Extract text from the assistant message's content blocks
+              const betaMessage = msg.message;
+              if (betaMessage?.content) {
+                for (const block of betaMessage.content) {
+                  if (block.type === 'text') {
+                    finalText = block.text;
+                    emit({ type: 'text', content: block.text, timestamp: Date.now() });
+                  } else if (block.type === 'tool_use') {
+                    emit({
+                      type: 'tool_use',
+                      content: `Using ${block.name}`,
+                      toolName: block.name,
+                      toolInput: block.input,
                       timestamp: Date.now(),
-                    })}\n\n`
-                  )
-                );
+                    });
+                  }
+                }
               }
+              break;
+            }
 
-              if (event.type === 'message_stop') {
-                controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+            case 'tool_progress': {
+              emit({
+                type: 'tool_progress',
+                content: `${msg.tool_name} running...`,
+                toolName: msg.tool_name,
+                elapsed: msg.elapsed_time_seconds,
+                timestamp: Date.now(),
+              });
+              break;
+            }
+
+            case 'tool_use_summary': {
+              emit({
+                type: 'tool_summary',
+                content: msg.summary,
+                timestamp: Date.now(),
+              });
+              break;
+            }
+
+            case 'result': {
+              if (msg.subtype === 'success') {
+                emit({
+                  type: 'result',
+                  content: msg.result || finalText,
+                  costUsd: msg.total_cost_usd,
+                  numTurns: msg.num_turns,
+                  sessionId: msg.session_id,
+                  timestamp: Date.now(),
+                });
+              } else {
+                emit({
+                  type: 'error',
+                  content: `Agent error (${msg.subtype}): ${msg.errors?.join(', ') || 'unknown'}`,
+                  timestamp: Date.now(),
+                });
               }
-            } catch {
-              // skip malformed JSON
+              break;
             }
           }
         }
 
-        // Ensure we always send a DONE
+        emit({ type: 'done', content: '', timestamp: Date.now() });
         controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        emit({ type: 'error', content: errMsg, timestamp: Date.now() });
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+      } finally {
         controller.close();
-      },
-    });
+      }
+    },
+  });
 
-    return new NextResponse(stream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-      },
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+  return new NextResponse(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    },
+  });
+}
+
+// ─── Anthropic Messages API Fallback ───
+
+async function handleWithMessagesAPI(
+  message: string,
+  systemPrompt?: string,
+  repoContext?: { owner: string; repo: string; branch?: string }
+) {
+  let system = systemPrompt || 'You are Claude Code, an AI coding agent.';
+  if (repoContext) {
+    system += `\n\nRepository context: ${repoContext.owner}/${repoContext.repo}`;
+    if (repoContext.branch) system += ` (branch: ${repoContext.branch})`;
   }
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': ANTHROPIC_API_KEY!,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2048,
+      system,
+      messages: [{ role: 'user', content: message }],
+      stream: true,
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    return NextResponse.json(
+      { error: `Anthropic API error: ${errText}` },
+      { status: res.status }
+    );
+  }
+
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const reader = res.body!.getReader();
+      let buffer = '';
+      let fullText = '';
+
+      controller.enqueue(
+        encoder.encode(
+          `data: ${JSON.stringify({ type: 'thinking', content: '', timestamp: Date.now() })}\n\n`
+        )
+      );
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6).trim();
+          if (data === '[DONE]') continue;
+
+          try {
+            const event = JSON.parse(data);
+
+            if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+              fullText += event.delta.text;
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({
+                    type: 'text',
+                    content: fullText,
+                    timestamp: Date.now(),
+                  })}\n\n`
+                )
+              );
+            }
+
+            if (event.type === 'message_stop') {
+              controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+            }
+          } catch {
+            // skip malformed JSON
+          }
+        }
+      }
+
+      controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+      controller.close();
+    },
+  });
+
+  return new NextResponse(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    },
+  });
 }

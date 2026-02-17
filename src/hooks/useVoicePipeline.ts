@@ -29,13 +29,20 @@ function createTTS(name: string): TextToSpeechProvider {
   return new WebSpeechTTS();
 }
 
-function createAgent(mock: boolean): ClaudeCodeAgentProvider {
-  if (mock) {
+async function createAgent(): Promise<ClaudeCodeAgentProvider> {
+  // Try to connect to real agent backend first; fall back to mock
+  try {
+    const { ClaudeCodeClient } = require('@/lib/agent/claude-code-client');
+    const client = new ClaudeCodeClient();
+    await client.connect({});
+    return client;
+  } catch {
+    // Backend not configured or unreachable — use mock
     const { MockClaudeCodeClient } = require('@/lib/agent/mock-client');
-    return new MockClaudeCodeClient();
+    const mock = new MockClaudeCodeClient();
+    await mock.connect({});
+    return mock;
   }
-  const { ClaudeCodeClient } = require('@/lib/agent/claude-code-client');
-  return new ClaudeCodeClient();
 }
 
 export interface TranscriptEntry {
@@ -51,6 +58,8 @@ export interface PipelineState {
   partialText: string;
   transcript: TranscriptEntry[];
   agentEvents: AgentEvent[];
+  agentConnected: boolean;
+  agentProvider: string;
   error: string | null;
 }
 
@@ -62,6 +71,8 @@ export function useVoicePipeline(settings: Settings) {
     partialText: '',
     transcript: [],
     agentEvents: [],
+    agentConnected: false,
+    agentProvider: 'initializing',
     error: null,
   });
 
@@ -72,58 +83,69 @@ export function useVoicePipeline(settings: Settings) {
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
-  // Initialize providers when settings change
+  // Initialize STT/TTS providers when settings change
   useEffect(() => {
     sttRef.current = createSTT(settings.sttProvider);
     ttsRef.current = createTTS(settings.ttsProvider);
   }, [settings.sttProvider, settings.ttsProvider]);
 
-  // Initialize agent (mock for now)
+  // Initialize agent — tries real backend, falls back to mock
   useEffect(() => {
-    const useMock = true; // Phase 1: always mock
-    const agent = createAgent(useMock);
-    agent.connect({});
-    agent.onAgentEvent((event: AgentEvent) => {
-      setState((s) => ({ ...s, agentEvents: [...s.agentEvents, event] }));
+    let cancelled = false;
 
-      if (event.type === 'text') {
-        setState((s) => ({
-          ...s,
-          transcript: [
-            ...s.transcript,
-            { role: 'agent', text: event.content, timestamp: event.timestamp },
-          ],
-        }));
-      }
+    const setupAgentHandler = (agent: ClaudeCodeAgentProvider) => {
+      agent.onAgentEvent((event: AgentEvent) => {
+        if (cancelled) return;
 
-      if (event.type === 'done') {
-        setState((s) => ({ ...s, thinking: false }));
+        setState((s) => ({ ...s, agentEvents: [...s.agentEvents, event] }));
 
-        // Read the last agent text aloud if speakResponse is on
-        const lastText = event.content || '';
-        handleAgentDone(lastText);
-      }
+        if (event.type === 'text') {
+          setState((s) => ({
+            ...s,
+            transcript: [
+              ...s.transcript,
+              { role: 'agent', text: event.content, timestamp: event.timestamp },
+            ],
+          }));
+        }
 
-      if (event.type === 'error') {
-        setState((s) => ({ ...s, error: event.content, thinking: false }));
-      }
+        if (event.type === 'done') {
+          setState((s) => ({ ...s, thinking: false }));
+          handleAgentDone();
+        }
+
+        if (event.type === 'error') {
+          setState((s) => ({ ...s, error: event.content, thinking: false }));
+        }
+      });
+    };
+
+    createAgent().then((agent) => {
+      if (cancelled) return;
+      setupAgentHandler(agent);
+      agentRef.current = agent;
+      setState((s) => ({
+        ...s,
+        agentConnected: agent.isConnected(),
+        agentProvider: agent.name,
+      }));
     });
 
-    agentRef.current = agent;
+    return () => {
+      cancelled = true;
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleAgentDone = useCallback(async (directText?: string) => {
+  const handleAgentDone = useCallback(() => {
     const s = settingsRef.current;
     if (!s.speakResponse || !ttsRef.current) {
-      // If hands-free, restart listening
       if (s.handsFree) startListening();
       return;
     }
 
-    // Find last agent message
     setState((prev) => {
       const lastAgent = [...prev.transcript].reverse().find((e) => e.role === 'agent');
-      const textToSpeak = directText || lastAgent?.text;
+      const textToSpeak = lastAgent?.text;
       if (textToSpeak && ttsRef.current) {
         setState((ss) => ({ ...ss, speaking: true }));
         ttsRef.current
@@ -136,6 +158,8 @@ export function useVoicePipeline(settings: Settings) {
             setState((ss) => ({ ...ss, speaking: false }));
             if (settingsRef.current.handsFree) startListening();
           });
+      } else {
+        if (s.handsFree) startListening();
       }
       return prev;
     });
@@ -163,7 +187,6 @@ export function useVoicePipeline(settings: Settings) {
           ],
         }));
         stt.stop();
-        // Send to agent
         agentRef.current?.sendUserMessage(text, {
           repoContext: repoCtxRef.current,
         });

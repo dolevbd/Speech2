@@ -6,22 +6,42 @@ import type {
 } from '../voice/types';
 import { AGENT_SYSTEM_PROMPT } from './types';
 
+interface AgentHealthResponse {
+  ok: boolean;
+  provider: string;
+}
+
 /**
- * Real Claude Code agent client — Phase 3 implementation.
+ * Real Claude Code agent client.
  *
- * Uses the Anthropic Messages API with streaming and tool-use capabilities.
- * Server-side route /api/agent handles the actual API calls to keep keys safe.
+ * Communicates with the server-side /api/agent route which can use either:
+ * - Claude Agent SDK (full code agent with file edit, bash, etc.)
+ * - Anthropic Messages API fallback (chat only)
+ *
+ * All API keys stay server-side. The client only processes SSE events.
  */
 export class ClaudeCodeClient implements ClaudeCodeAgentProvider {
   readonly name = 'ClaudeCode';
   private _connected = false;
+  private _provider = 'unknown';
+  private _sessionId: string | undefined;
   private eventCb: ((event: AgentEvent) => void) | null = null;
   private abortController: AbortController | null = null;
 
+  get provider() {
+    return this._provider;
+  }
+
+  get sessionId() {
+    return this._sessionId;
+  }
+
   async connect(_auth: AgentAuth): Promise<void> {
-    // Verify the server-side agent route is accessible
     const res = await fetch('/api/agent', { method: 'GET' });
     if (!res.ok) throw new Error('Cannot connect to agent backend');
+    const data = (await res.json()) as AgentHealthResponse;
+    if (!data.ok) throw new Error('Agent backend not configured');
+    this._provider = data.provider;
     this._connected = true;
   }
 
@@ -42,7 +62,7 @@ export class ClaudeCodeClient implements ClaudeCodeAgentProvider {
         message: text,
         systemPrompt: AGENT_SYSTEM_PROMPT,
         repoContext: opts.repoContext,
-        sessionId: opts.sessionId,
+        sessionId: opts.sessionId ?? this._sessionId,
       }),
       signal: this.abortController.signal,
     });
@@ -58,7 +78,6 @@ export class ClaudeCodeClient implements ClaudeCodeAgentProvider {
       return;
     }
 
-    // Read SSE stream
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -79,8 +98,8 @@ export class ClaudeCodeClient implements ClaudeCodeAgentProvider {
           return;
         }
         try {
-          const event = JSON.parse(data) as AgentEvent;
-          this.emit(event);
+          const parsed = JSON.parse(data) as Record<string, unknown>;
+          this.processServerEvent(parsed);
         } catch {
           // skip malformed lines
         }
@@ -101,6 +120,86 @@ export class ClaudeCodeClient implements ClaudeCodeAgentProvider {
 
   isConnected(): boolean {
     return this._connected;
+  }
+
+  /**
+   * Map server SSE events (from both SDK and Messages API modes) to our AgentEvent type.
+   */
+  private processServerEvent(ev: Record<string, unknown>): void {
+    const type = ev.type as string;
+    const ts = (ev.timestamp as number) ?? Date.now();
+    const content = (ev.content as string) ?? '';
+
+    switch (type) {
+      case 'thinking':
+        this.emit({ type: 'thinking', content, timestamp: ts });
+        break;
+
+      case 'text':
+        this.emit({ type: 'text', content, timestamp: ts });
+        break;
+
+      case 'tool_use':
+        this.emit({
+          type: 'tool_use',
+          content,
+          toolName: ev.toolName as string,
+          timestamp: ts,
+        });
+        break;
+
+      case 'tool_progress':
+        this.emit({
+          type: 'tool_use',
+          content,
+          toolName: ev.toolName as string,
+          timestamp: ts,
+        });
+        break;
+
+      case 'tool_summary':
+        this.emit({ type: 'text', content, timestamp: ts });
+        break;
+
+      case 'file_change':
+        this.emit({
+          type: 'file_change',
+          content,
+          filePath: ev.filePath as string,
+          diff: ev.diff as string,
+          timestamp: ts,
+        });
+        break;
+
+      case 'system_init':
+        // Capture session ID for multi-turn conversations
+        if (ev.sessionId) {
+          this._sessionId = ev.sessionId as string;
+        }
+        this.emit({ type: 'thinking', content: `Agent ready (${ev.model})`, timestamp: ts });
+        break;
+
+      case 'result':
+        if (ev.sessionId) {
+          this._sessionId = ev.sessionId as string;
+        }
+        this.emit({ type: 'text', content, timestamp: ts });
+        break;
+
+      case 'error':
+        this.emit({ type: 'error', content, timestamp: ts });
+        break;
+
+      case 'done':
+        this.emit({ type: 'done', content: '', timestamp: ts });
+        break;
+
+      default:
+        // Forward unknown events as text
+        if (content) {
+          this.emit({ type: 'text', content, timestamp: ts });
+        }
+    }
   }
 
   private emit(event: AgentEvent): void {

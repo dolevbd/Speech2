@@ -45,7 +45,7 @@ export default function Home() {
       {/* Status bar */}
       <StatusBar
         lang={lang}
-        agentConnected={true}
+        agentConnected={pipeline.agentConnected}
         repoConnected={!!repoCtx}
         repoName={repoCtx ? `${repoCtx.owner}/${repoCtx.repo}` : undefined}
         onSettingsClick={() => setSettingsOpen(true)}
