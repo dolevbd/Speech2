@@ -71,17 +71,32 @@ npm run dev
 - **Agent events** — See tool use, file changes, progress in real-time
 - **Session persistence** — Multi-turn conversations with context
 
-## Deployment (Vercel)
+## Deployment
+
+### Vercel (Recommended for chat mode)
+
+Vercel serverless functions cannot spawn child processes, so the full Claude Agent SDK is not available. The app automatically uses the **Anthropic Messages API** fallback — you still get Claude conversations in Hebrew/English, just without file editing and bash tools.
+
+1. Push your repo to GitHub
+2. Import the project in [vercel.com](https://vercel.com)
+3. Set environment variables in the Vercel dashboard:
+   - `ANTHROPIC_API_KEY` — your Anthropic API key
+   - `OPENAI_API_KEY` — your OpenAI API key (for STT/TTS)
+   - `USE_AGENT_SDK` — set to `false`
+4. Deploy
+
+Or via CLI:
 
 ```bash
-npm run build
-# Deploy to Vercel
 npx vercel --prod
 ```
 
-Set environment variables in Vercel dashboard.
+### Container (Full agent mode)
 
-**For full agent SDK mode:** The deployment environment needs Node.js and the ability to spawn child processes (which Vercel serverless does support for the SDK).
+For the full Claude Agent SDK with file read/edit, bash, grep, and multi-turn coding sessions, deploy to a platform that supports long-running Node.js processes:
+
+- **Railway** / **Fly.io** / **Render** — set `USE_AGENT_SDK=true`
+- Requires Node.js 18+ and ability to spawn child processes
 
 ## Hebrew Voice Notes
 

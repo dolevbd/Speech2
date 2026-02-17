@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  serverExternalPackages: ['@anthropic-ai/claude-agent-sdk'],
   headers: async () => [
     {
       source: '/sw.js',
