@@ -45,7 +45,13 @@ export async function POST(req: NextRequest) {
     }
 
     if (USE_AGENT_SDK) {
-      return handleWithAgentSDK(message, systemPrompt, repoContext, sessionId);
+      try {
+        return await handleWithAgentSDK(message, systemPrompt, repoContext, sessionId);
+      } catch (sdkErr) {
+        // Agent SDK not available (e.g. Vercel serverless) — fall back to Messages API
+        console.warn('Agent SDK failed, falling back to Messages API:', sdkErr);
+        return handleWithMessagesAPI(message, systemPrompt, repoContext);
+      }
     }
     return handleWithMessagesAPI(message, systemPrompt, repoContext);
   } catch (err) {
