@@ -79,6 +79,19 @@ export function Settings({ open, onClose, settings, onUpdate }: SettingsProps) {
           />
         </Field>
 
+        {/* Silence Timeout */}
+        <Field label={`${t(lang, 'silenceTimeout')}: ${(settings.silenceTimeout / 1000).toFixed(1)}s`}>
+          <input
+            type="range"
+            min="1000"
+            max="5000"
+            step="500"
+            value={settings.silenceTimeout}
+            onChange={(e) => onUpdate({ silenceTimeout: parseInt(e.target.value) })}
+            className="w-full accent-primary"
+          />
+        </Field>
+
         {/* Hands-free */}
         <Toggle
           label={t(lang, 'handsFree')}

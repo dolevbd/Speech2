@@ -15,6 +15,8 @@ export interface Settings {
   handsFree: boolean;
   speakResponse: boolean;
   streaming: boolean;
+  /** Milliseconds of silence before finalizing speech input. Default 2000. */
+  silenceTimeout: number;
 }
 
 const STORAGE_KEY = 'voice-agent-settings';
@@ -28,6 +30,7 @@ const defaults: Settings = {
   handsFree: false,
   speakResponse: true,
   streaming: true,
+  silenceTimeout: 2000,
 };
 
 export function useSettings() {

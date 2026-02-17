@@ -3,6 +3,7 @@ import type {
   AgentAuth,
   AgentEvent,
   RepoContext,
+  ConversationEntry,
 } from '../voice/types';
 
 /**
@@ -21,7 +22,7 @@ export class MockClaudeCodeClient implements ClaudeCodeAgentProvider {
 
   async sendUserMessage(
     text: string,
-    opts: { repoContext?: RepoContext; sessionId?: string }
+    opts: { repoContext?: RepoContext; sessionId?: string; history?: ConversationEntry[] }
   ): Promise<void> {
     if (!this._connected) throw new Error('Agent not connected');
 

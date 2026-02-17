@@ -30,11 +30,12 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { message, systemPrompt, repoContext, sessionId } = (await req.json()) as {
+    const { message, systemPrompt, repoContext, sessionId, history } = (await req.json()) as {
       message: string;
       systemPrompt?: string;
       repoContext?: { owner: string; repo: string; branch?: string };
       sessionId?: string;
+      history?: Array<{ role: 'user' | 'assistant'; content: string }>;
     };
 
     if (!message || message.length > 10000) {
@@ -46,14 +47,14 @@ export async function POST(req: NextRequest) {
 
     if (USE_AGENT_SDK) {
       try {
-        return await handleWithAgentSDK(message, systemPrompt, repoContext, sessionId);
+        return await handleWithAgentSDK(message, systemPrompt, repoContext, sessionId, history);
       } catch (sdkErr) {
         // Agent SDK not available (e.g. Vercel serverless) — fall back to Messages API
         console.warn('Agent SDK failed, falling back to Messages API:', sdkErr);
-        return handleWithMessagesAPI(message, systemPrompt, repoContext);
+        return handleWithMessagesAPI(message, systemPrompt, repoContext, history);
       }
     }
-    return handleWithMessagesAPI(message, systemPrompt, repoContext);
+    return handleWithMessagesAPI(message, systemPrompt, repoContext, history);
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json({ error: msg }, { status: 500 });
@@ -66,7 +67,8 @@ async function handleWithAgentSDK(
   message: string,
   systemPrompt?: string,
   repoContext?: { owner: string; repo: string; branch?: string },
-  sessionId?: string
+  sessionId?: string,
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>
 ) {
   const { query } = await import('@anthropic-ai/claude-agent-sdk');
 
@@ -75,6 +77,16 @@ async function handleWithAgentSDK(
   if (repoContext) {
     system += `\n\nRepository context: ${repoContext.owner}/${repoContext.repo}`;
     if (repoContext.branch) system += ` (branch: ${repoContext.branch})`;
+  }
+
+  // Include conversation history as context backup (in case session resume fails)
+  if (!sessionId && history && history.length > 1) {
+    const recent = history.slice(-10); // Last 10 turns to avoid bloating the prompt
+    system += '\n\nPrevious conversation (for context):\n';
+    for (const entry of recent.slice(0, -1)) { // Exclude current message
+      const role = entry.role === 'user' ? 'User' : 'Assistant';
+      system += `${role}: ${entry.content.slice(0, 500)}\n`;
+    }
   }
 
   const encoder = new TextEncoder();
@@ -219,7 +231,8 @@ async function handleWithAgentSDK(
 async function handleWithMessagesAPI(
   message: string,
   systemPrompt?: string,
-  repoContext?: { owner: string; repo: string; branch?: string }
+  repoContext?: { owner: string; repo: string; branch?: string },
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>
 ) {
   let system =
     systemPrompt ||
@@ -227,6 +240,18 @@ async function handleWithMessagesAPI(
   if (repoContext) {
     system += `\n\nRepository context: ${repoContext.owner}/${repoContext.repo}`;
     if (repoContext.branch) system += ` (branch: ${repoContext.branch})`;
+  }
+
+  // Build messages array from conversation history
+  const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  if (history && history.length > 0) {
+    // Use the last 20 turns to stay within token limits
+    const recent = history.slice(-20);
+    for (const entry of recent) {
+      messages.push({ role: entry.role, content: entry.content });
+    }
+  } else {
+    messages.push({ role: 'user', content: message });
   }
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -240,7 +265,7 @@ async function handleWithMessagesAPI(
       model: 'claude-sonnet-4-20250514',
       max_tokens: 2048,
       system,
-      messages: [{ role: 'user', content: message }],
+      messages,
       stream: true,
     }),
   });

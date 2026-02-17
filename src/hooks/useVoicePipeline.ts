@@ -7,6 +7,7 @@ import type {
   ClaudeCodeAgentProvider,
   AgentEvent,
   RepoContext,
+  ConversationEntry,
 } from '@/lib/voice/types';
 import type { Settings } from './useSettings';
 
@@ -191,25 +192,38 @@ export function useVoicePipeline(settings: Settings) {
         setState((s) => ({ ...s, partialText: text }));
       },
       onFinal: (text) => {
-        setState((s) => ({
-          ...s,
-          listening: false,
-          partialText: '',
-          thinking: true,
-          transcript: [
-            ...s.transcript,
-            { role: 'user', text, timestamp: Date.now() },
-          ],
-        }));
+        // Capture conversation history from current state before updating
+        let history: ConversationEntry[] = [];
+        setState((s) => {
+          // Build history: map transcript + current user message
+          history = [
+            ...s.transcript.map((e) => ({
+              role: (e.role === 'agent' ? 'assistant' : 'user') as ConversationEntry['role'],
+              content: e.text,
+            })),
+            { role: 'user' as const, content: text },
+          ];
+          return {
+            ...s,
+            listening: false,
+            partialText: '',
+            thinking: true,
+            transcript: [
+              ...s.transcript,
+              { role: 'user', text, timestamp: Date.now() },
+            ],
+          };
+        });
         stt.stop();
         agentRef.current?.sendUserMessage(text, {
           repoContext: repoCtxRef.current,
+          history,
         });
       },
       onError: (err) => {
         setState((s) => ({ ...s, listening: false, error: err.message }));
       },
-    });
+    }, { silenceTimeout: settingsRef.current.silenceTimeout });
   }, []);
 
   const stopListening = useCallback(() => {

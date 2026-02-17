@@ -34,6 +34,7 @@ const translations = {
     githubToken: 'טוקן GitHub',
     githubTokenHint: 'אופציונלי — נדרש עבור מאגרים פרטיים',
     driving: 'מצב נהיגה',
+    silenceTimeout: 'השהיית שקט',
   },
   en: {
     appTitle: 'Voice Agent — Claude Code',
@@ -68,6 +69,7 @@ const translations = {
     githubToken: 'GitHub Token',
     githubTokenHint: 'Optional — required for private repos',
     driving: 'Driving mode',
+    silenceTimeout: 'Silence timeout',
   },
 } as const;
 

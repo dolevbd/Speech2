@@ -6,9 +6,14 @@ export interface STTCallbacks {
   onError?: (error: Error) => void;
 }
 
+export interface STTOptions {
+  /** Milliseconds of silence before finalizing speech. Default 2000. */
+  silenceTimeout?: number;
+}
+
 export interface SpeechToTextProvider {
   readonly name: string;
-  start(lang: string, callbacks: STTCallbacks): void;
+  start(lang: string, callbacks: STTCallbacks, options?: STTOptions): void;
   stop(): void;
   isListening(): boolean;
   supportsLanguage(langCode: string): boolean;
@@ -64,12 +69,17 @@ export interface RepoContext {
   githubToken?: string;
 }
 
+export interface ConversationEntry {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export interface ClaudeCodeAgentProvider {
   readonly name: string;
   connect(auth: AgentAuth): Promise<void>;
   sendUserMessage(
     text: string,
-    opts: { repoContext?: RepoContext; sessionId?: string }
+    opts: { repoContext?: RepoContext; sessionId?: string; history?: ConversationEntry[] }
   ): Promise<void>;
   onAgentEvent(cb: (event: AgentEvent) => void): void;
   cancel(sessionId?: string): void;

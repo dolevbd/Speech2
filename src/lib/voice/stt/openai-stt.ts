@@ -1,4 +1,4 @@
-import type { SpeechToTextProvider, STTCallbacks } from '../types';
+import type { SpeechToTextProvider, STTCallbacks, STTOptions } from '../types';
 
 /**
  * OpenAI STT using gpt-4o-transcribe via server-side /api/stt route.
@@ -12,7 +12,7 @@ export class OpenAISTT implements SpeechToTextProvider {
   private callbacks: STTCallbacks = {};
   private lang = 'he';
 
-  start(lang: string, callbacks: STTCallbacks): void {
+  start(lang: string, callbacks: STTCallbacks, _options?: STTOptions): void {
     this.callbacks = callbacks;
     this.lang = lang;
     this._listening = true;
