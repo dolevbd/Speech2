@@ -1,0 +1,76 @@
+export type UILang = 'he' | 'en';
+
+const translations = {
+  he: {
+    appTitle: 'סוכן קולי — Claude Code',
+    micStart: 'לחץ לדיבור',
+    micStop: 'הקש לעצירה',
+    listening: 'מקשיב...',
+    thinking: 'חושב...',
+    handsFree: 'דיבורית',
+    speakResponse: 'הקראת תשובה',
+    settings: 'הגדרות',
+    sttProvider: 'ספק זיהוי דיבור',
+    ttsProvider: 'ספק הקראה',
+    voiceSpeed: 'מהירות דיבור',
+    language: 'שפה',
+    agentStatus: 'סטטוס סוכן',
+    connected: 'מחובר',
+    disconnected: 'מנותק',
+    repoStatus: 'סטטוס מאגר',
+    noRepo: 'לא מחובר למאגר',
+    send: 'שלח',
+    cancel: 'ביטול',
+    close: 'סגור',
+    userLabel: 'אתה',
+    agentLabel: 'סוכן',
+    toolUse: 'שימוש בכלי',
+    fileChange: 'שינוי קובץ',
+    connectRepo: 'חבר מאגר GitHub',
+    owner: 'בעלים',
+    repo: 'מאגר',
+    branch: 'ענף',
+    connect: 'חבר',
+    driving: 'מצב נהיגה',
+  },
+  en: {
+    appTitle: 'Voice Agent — Claude Code',
+    micStart: 'Tap to speak',
+    micStop: 'Tap to stop',
+    listening: 'Listening...',
+    thinking: 'Thinking...',
+    handsFree: 'Hands-free',
+    speakResponse: 'Speak response',
+    settings: 'Settings',
+    sttProvider: 'STT Provider',
+    ttsProvider: 'TTS Provider',
+    voiceSpeed: 'Voice speed',
+    language: 'Language',
+    agentStatus: 'Agent status',
+    connected: 'Connected',
+    disconnected: 'Disconnected',
+    repoStatus: 'Repo status',
+    noRepo: 'No repo connected',
+    send: 'Send',
+    cancel: 'Cancel',
+    close: 'Close',
+    userLabel: 'You',
+    agentLabel: 'Agent',
+    toolUse: 'Tool use',
+    fileChange: 'File change',
+    connectRepo: 'Connect GitHub repo',
+    owner: 'Owner',
+    repo: 'Repo',
+    branch: 'Branch',
+    connect: 'Connect',
+    driving: 'Driving mode',
+  },
+} as const;
+
+export type TranslationKey = keyof (typeof translations)['he'];
+
+export function t(lang: UILang, key: TranslationKey): string {
+  return translations[lang][key];
+}
+
+export default translations;
