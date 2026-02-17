@@ -61,6 +61,7 @@ export interface RepoContext {
   owner: string;
   repo: string;
   branch?: string;
+  githubToken?: string;
 }
 
 export interface ClaudeCodeAgentProvider {

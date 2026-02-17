@@ -70,6 +70,7 @@ export class ClaudeCodeClient implements ClaudeCodeAgentProvider {
         systemPrompt: AGENT_SYSTEM_PROMPT,
         repoContext: opts.repoContext,
         sessionId: opts.sessionId ?? this._sessionId,
+        githubToken: opts.repoContext?.githubToken,
       }),
       signal: this.abortController.signal,
     });

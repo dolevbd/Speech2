@@ -31,6 +31,8 @@ const translations = {
     repo: 'מאגר',
     branch: 'ענף',
     connect: 'חבר',
+    githubToken: 'טוקן GitHub',
+    githubTokenHint: 'אופציונלי — נדרש עבור מאגרים פרטיים',
     driving: 'מצב נהיגה',
   },
   en: {
@@ -63,6 +65,8 @@ const translations = {
     repo: 'Repo',
     branch: 'Branch',
     connect: 'Connect',
+    githubToken: 'GitHub Token',
+    githubTokenHint: 'Optional — required for private repos',
     driving: 'Driving mode',
   },
 } as const;

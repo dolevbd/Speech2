@@ -9,5 +9,7 @@ services:
         sync: false # Set manually in Render dashboard
       - key: ALLOWED_ORIGINS
         sync: false # Set to your Vercel URL, e.g. https://speech2-eta.vercel.app
+      - key: GITHUB_TOKEN
+        sync: false # Optional — for private repos, set a GitHub PAT
       - key: PORT
         value: 3001

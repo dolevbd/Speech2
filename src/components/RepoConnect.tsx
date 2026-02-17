@@ -16,12 +16,18 @@ export function RepoConnect({ open, onClose, onConnect, lang }: RepoConnectProps
   const [owner, setOwner] = useState('');
   const [repo, setRepo] = useState('');
   const [branch, setBranch] = useState('main');
+  const [token, setToken] = useState('');
 
   if (!open) return null;
 
   const handleSubmit = () => {
     if (!owner.trim() || !repo.trim()) return;
-    onConnect({ owner: owner.trim(), repo: repo.trim(), branch: branch.trim() || undefined });
+    onConnect({
+      owner: owner.trim(),
+      repo: repo.trim(),
+      branch: branch.trim() || undefined,
+      githubToken: token.trim() || undefined,
+    });
     onClose();
   };
 
@@ -62,6 +68,18 @@ export function RepoConnect({ open, onClose, onConnect, lang }: RepoConnectProps
               placeholder="main"
               className="input-field"
             />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">{t(lang, 'githubToken')}</label>
+            <input
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              type="password"
+              placeholder="ghp_..."
+              className="input-field"
+              autoComplete="off"
+            />
+            <p className="text-xs text-gray-500 mt-1">{t(lang, 'githubTokenHint')}</p>
           </div>
 
           <button
