@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: voice-agent-backend
+    runtime: docker
+    dockerfilePath: ./server/Dockerfile
+    dockerContext: ./server
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false # Set manually in Render dashboard
+      - key: ALLOWED_ORIGINS
+        sync: false # Set to your Vercel URL, e.g. https://speech2-eta.vercel.app
+      - key: PORT
+        value: 3001

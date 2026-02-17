@@ -28,6 +28,13 @@ export class ClaudeCodeClient implements ClaudeCodeAgentProvider {
   private eventCb: ((event: AgentEvent) => void) | null = null;
   private abortController: AbortController | null = null;
 
+  /**
+   * Base URL for the agent backend.
+   * Set NEXT_PUBLIC_AGENT_BACKEND_URL to your Render backend URL for full Agent SDK.
+   * Leave empty to use the local /api/agent route (Messages API fallback).
+   */
+  private baseUrl = process.env.NEXT_PUBLIC_AGENT_BACKEND_URL || '';
+
   get provider() {
     return this._provider;
   }
@@ -37,7 +44,7 @@ export class ClaudeCodeClient implements ClaudeCodeAgentProvider {
   }
 
   async connect(_auth: AgentAuth): Promise<void> {
-    const res = await fetch('/api/agent', { method: 'GET' });
+    const res = await fetch(`${this.baseUrl}/api/agent`, { method: 'GET' });
     if (!res.ok) throw new Error('Cannot connect to agent backend');
     const data = (await res.json()) as AgentHealthResponse;
     if (!data.ok) throw new Error('Agent backend not configured');
@@ -55,7 +62,7 @@ export class ClaudeCodeClient implements ClaudeCodeAgentProvider {
 
     this.emit({ type: 'thinking', content: '', timestamp: Date.now() });
 
-    const res = await fetch('/api/agent', {
+    const res = await fetch(`${this.baseUrl}/api/agent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
