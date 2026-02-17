@@ -221,7 +221,9 @@ async function handleWithMessagesAPI(
   systemPrompt?: string,
   repoContext?: { owner: string; repo: string; branch?: string }
 ) {
-  let system = systemPrompt || 'You are Claude Code, an AI coding agent.';
+  let system =
+    systemPrompt ||
+    'You are Claude Code, an AI coding agent. This is a voice interface — the user is speaking to you and your response will be read aloud. Always start with a brief spoken summary of what you did or are explaining, then put any code in fenced code blocks after the summary. Keep the spoken parts concise and natural.';
   if (repoContext) {
     system += `\n\nRepository context: ${repoContext.owner}/${repoContext.repo}`;
     if (repoContext.branch) system += ` (branch: ${repoContext.branch})`;

@@ -155,7 +155,12 @@ export function useVoicePipeline(settings: Settings) {
 
     setState((prev) => {
       const lastAgent = [...prev.transcript].reverse().find((e) => e.role === 'agent');
-      const textToSpeak = lastAgent?.text;
+      // Strip fenced code blocks and inline code so TTS only reads the summary
+      const textToSpeak = lastAgent?.text
+        ?.replace(/```[\s\S]*?```/g, '')
+        .replace(/`[^`]+`/g, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
       if (textToSpeak && ttsRef.current) {
         setState((ss) => ({ ...ss, speaking: true }));
         ttsRef.current
