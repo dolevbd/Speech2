@@ -14,6 +14,11 @@ export async function GET() {
   return NextResponse.json({
     ok: configured,
     provider: configured ? (USE_AGENT_SDK ? 'claude-agent-sdk' : 'anthropic-messages') : 'mock',
+    debug: {
+      hasApiKey: configured,
+      useAgentSdk: USE_AGENT_SDK,
+      keyPrefix: configured ? ANTHROPIC_API_KEY!.slice(0, 7) + '...' : null,
+    },
   });
 }
 

@@ -6,6 +6,7 @@ import type { UILang } from '@/lib/i18n/translations';
 interface StatusBarProps {
   lang: UILang;
   agentConnected: boolean;
+  agentProvider: string;
   repoConnected: boolean;
   repoName?: string;
   onSettingsClick: () => void;
@@ -14,22 +15,31 @@ interface StatusBarProps {
 export function StatusBar({
   lang,
   agentConnected,
+  agentProvider,
   repoConnected,
   repoName,
   onSettingsClick,
 }: StatusBarProps) {
+  const isMock = agentProvider === 'MockAgent';
+
   return (
-    <div className="flex items-center justify-between px-4 py-2 bg-surface border-b border-white/5">
+    <div className="flex flex-col bg-surface border-b border-white/5">
+      {isMock && (
+        <div className="px-4 py-1.5 bg-yellow-500/10 border-b border-yellow-500/20 text-xs text-yellow-400 text-center">
+          {t(lang, 'mockWarning')}
+        </div>
+      )}
+      <div className="flex items-center justify-between px-4 py-2">
       <div className="flex items-center gap-3 text-xs">
         {/* Agent status */}
         <span className="flex items-center gap-1">
           <span
             className={`w-2 h-2 rounded-full ${
-              agentConnected ? 'bg-green-400' : 'bg-red-400'
+              isMock ? 'bg-yellow-400' : agentConnected ? 'bg-green-400' : 'bg-red-400'
             }`}
           />
           <span className="text-gray-400">
-            {agentConnected ? t(lang, 'connected') : t(lang, 'disconnected')}
+            {isMock ? 'Mock' : agentConnected ? t(lang, 'connected') : t(lang, 'disconnected')}
           </span>
         </span>
 
@@ -53,6 +63,7 @@ export function StatusBar({
           />
         </svg>
       </button>
+      </div>
     </div>
   );
 }

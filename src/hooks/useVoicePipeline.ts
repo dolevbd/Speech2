@@ -37,8 +37,9 @@ async function createAgent(): Promise<ClaudeCodeAgentProvider> {
     const client = new ClaudeCodeClient();
     await client.connect({});
     return client;
-  } catch {
+  } catch (err) {
     // Backend not configured or unreachable — use mock
+    console.error('[VoicePipeline] Real agent connection failed, falling back to mock:', err);
     const { MockClaudeCodeClient } = require('@/lib/agent/mock-client');
     const mock = new MockClaudeCodeClient();
     await mock.connect({});

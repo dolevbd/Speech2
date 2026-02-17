@@ -35,6 +35,7 @@ const translations = {
     githubTokenHint: 'אופציונלי — נדרש עבור מאגרים פרטיים',
     driving: 'מצב נהיגה',
     silenceTimeout: 'השהיית שקט',
+    mockWarning: 'מצב דמו — הסוכן לא מחובר לשרת',
   },
   en: {
     appTitle: 'Voice Agent — Claude Code',
@@ -70,6 +71,7 @@ const translations = {
     githubTokenHint: 'Optional — required for private repos',
     driving: 'Driving mode',
     silenceTimeout: 'Silence timeout',
+    mockWarning: 'Demo mode — agent not connected to backend',
   },
 } as const;
 
