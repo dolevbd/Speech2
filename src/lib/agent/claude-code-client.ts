@@ -45,10 +45,16 @@ export class ClaudeCodeClient implements ClaudeCodeAgentProvider {
   }
 
   async connect(_auth: AgentAuth): Promise<void> {
-    const res = await fetch(`${this.baseUrl}/api/agent`, { method: 'GET' });
-    if (!res.ok) throw new Error('Cannot connect to agent backend');
-    const data = (await res.json()) as AgentHealthResponse;
-    if (!data.ok) throw new Error('Agent backend not configured');
+    const url = `${this.baseUrl}/api/agent`;
+    console.log('[ClaudeCodeClient] Connecting to:', url);
+    const res = await fetch(url, { method: 'GET' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Cannot connect to agent backend (HTTP ${res.status}): ${text}`);
+    }
+    const data = (await res.json()) as AgentHealthResponse & { debug?: Record<string, unknown> };
+    console.log('[ClaudeCodeClient] Health check response:', JSON.stringify(data));
+    if (!data.ok) throw new Error(`Agent backend not configured: ${JSON.stringify(data.debug || {})}`);
     this._provider = data.provider;
     this._connected = true;
   }
