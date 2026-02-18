@@ -30,7 +30,7 @@ const defaults: Settings = {
   handsFree: false,
   speakResponse: true,
   streaming: true,
-  silenceTimeout: 2000,
+  silenceTimeout: 3500,
 };
 
 export function useSettings() {

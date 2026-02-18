@@ -113,6 +113,7 @@ export default function Home() {
           speaking={pipeline.speaking}
           onPress={handleMicPress}
           onStop={pipeline.stopListening}
+          onStopSpeaking={pipeline.stopSpeaking}
           lang={lang}
         />
       </div>

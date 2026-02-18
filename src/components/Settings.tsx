@@ -83,8 +83,8 @@ export function Settings({ open, onClose, settings, onUpdate }: SettingsProps) {
         <Field label={`${t(lang, 'silenceTimeout')}: ${(settings.silenceTimeout / 1000).toFixed(1)}s`}>
           <input
             type="range"
-            min="1000"
-            max="5000"
+            min="1500"
+            max="10000"
             step="500"
             value={settings.silenceTimeout}
             onChange={(e) => onUpdate({ silenceTimeout: parseInt(e.target.value) })}
