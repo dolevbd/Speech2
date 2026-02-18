@@ -30,11 +30,11 @@ export class ClaudeCodeClient implements ClaudeCodeAgentProvider {
   private abortController: AbortController | null = null;
 
   /**
-   * Base URL for the agent backend.
-   * Set NEXT_PUBLIC_AGENT_BACKEND_URL to your Render backend URL for full Agent SDK.
-   * Leave empty to use the local /api/agent route (Messages API fallback).
+   * Base URL for the agent API.
+   * Always uses the local /api/agent route which proxies to the external backend
+   * when AGENT_BACKEND_URL is set server-side — no CORS issues.
    */
-  private baseUrl = process.env.NEXT_PUBLIC_AGENT_BACKEND_URL || '';
+  private baseUrl = '';
 
   get provider() {
     return this._provider;

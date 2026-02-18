@@ -2,14 +2,43 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
+// Server-side URL of an external agent backend (e.g. Render).
+// When set, this route proxies requests to the external backend — no CORS issues.
+const AGENT_BACKEND_URL = process.env.AGENT_BACKEND_URL;
+
 // Whether to use the Claude Agent SDK (full code agent) vs Messages API (chat only).
-// SDK requires the claude-agent-sdk package and spawns a local Claude Code process.
+// Only relevant when AGENT_BACKEND_URL is NOT set (local mode).
 const USE_AGENT_SDK = process.env.USE_AGENT_SDK !== 'false';
 
 /**
  * GET /api/agent — health check for agent connectivity
  */
 export async function GET() {
+  // ─── Proxy mode: forward health check to external backend ───
+  if (AGENT_BACKEND_URL) {
+    try {
+      const upstream = await fetch(`${AGENT_BACKEND_URL}/api/agent`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+      });
+      const data = await upstream.json();
+      return NextResponse.json({
+        ...data,
+        proxy: true,
+        backend: AGENT_BACKEND_URL,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return NextResponse.json({
+        ok: false,
+        proxy: true,
+        backend: AGENT_BACKEND_URL,
+        error: `Cannot reach agent backend: ${msg}`,
+      }, { status: 502 });
+    }
+  }
+
+  // ─── Local mode ───
   const configured = !!ANTHROPIC_API_KEY;
   return NextResponse.json({
     ok: configured,
@@ -25,11 +54,18 @@ export async function GET() {
 /**
  * POST /api/agent — send a message to Claude and stream agent events back via SSE.
  *
- * Two modes:
- * 1. Claude Agent SDK (default): Full code agent with file read/edit, bash, etc.
- * 2. Anthropic Messages API (fallback): Chat-only, no tool use.
+ * Three modes (in priority order):
+ * 1. Proxy mode: if AGENT_BACKEND_URL is set, proxy to external backend (e.g. Render)
+ * 2. Claude Agent SDK: Full code agent with file read/edit, bash, etc.
+ * 3. Anthropic Messages API fallback: Chat-only, no tool use.
  */
 export async function POST(req: NextRequest) {
+  // ─── Proxy mode: forward to external backend ───
+  if (AGENT_BACKEND_URL) {
+    return proxyToBackend(req);
+  }
+
+  // ─── Local mode ───
   if (!ANTHROPIC_API_KEY) {
     return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
   }
@@ -63,6 +99,69 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
+// ─── Proxy to External Backend ───
+
+async function proxyToBackend(req: NextRequest) {
+  try {
+    const body = await req.text();
+
+    const upstream = await fetch(`${AGENT_BACKEND_URL}/api/agent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+
+    if (!upstream.ok) {
+      const errText = await upstream.text().catch(() => '');
+      return NextResponse.json(
+        { error: `Backend error (HTTP ${upstream.status}): ${errText}` },
+        { status: upstream.status }
+      );
+    }
+
+    // Stream the SSE response from the backend back to the client
+    if (!upstream.body) {
+      return NextResponse.json({ error: 'No response body from backend' }, { status: 502 });
+    }
+
+    const stream = new ReadableStream({
+      async start(controller) {
+        const reader = upstream.body!.getReader();
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            controller.enqueue(value);
+          }
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          const encoder = new TextEncoder();
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ type: 'error', content: `Proxy stream error: ${errMsg}`, timestamp: Date.now() })}\n\n`)
+          );
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return new NextResponse(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return NextResponse.json(
+      { error: `Failed to proxy to backend: ${msg}` },
+      { status: 502 }
+    );
   }
 }
 
