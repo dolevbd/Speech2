@@ -187,7 +187,7 @@ app.post('/api/agent', async (req, res) => {
           append: system,
         },
         allowedTools: ['Read', 'Edit', 'Write', 'Bash', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
-        permissionMode: 'acceptEdits',
+        permissionMode: 'bypassPermissions',
         maxTurns: 15,
         maxBudgetUsd: 1.0,
         includePartialMessages: false,
