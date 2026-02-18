@@ -54,12 +54,27 @@ function ensureRepo(
       console.warn(`Repo update failed for ${key}, using cached version:`, e);
     }
   } else {
-    // Fresh clone
-    const branchArg = branch ? `--branch ${branch}` : '';
-    execSync(`git clone --depth 50 ${branchArg} ${cloneUrl} ${repoDir}`, {
-      stdio: 'pipe',
-      timeout: 60_000,
-    });
+    // Fresh clone — try with specified branch first, fall back to default branch
+    if (branch) {
+      try {
+        execSync(`git clone --depth 50 --branch ${branch} ${cloneUrl} ${repoDir}`, {
+          stdio: 'pipe',
+          timeout: 60_000,
+        });
+      } catch {
+        // Branch not found — clone with default branch instead
+        console.warn(`Branch '${branch}' not found for ${owner}/${repo}, cloning default branch`);
+        execSync(`git clone --depth 50 ${cloneUrl} ${repoDir}`, {
+          stdio: 'pipe',
+          timeout: 60_000,
+        });
+      }
+    } else {
+      execSync(`git clone --depth 50 ${cloneUrl} ${repoDir}`, {
+        stdio: 'pipe',
+        timeout: 60_000,
+      });
+    }
   }
 
   return repoDir;

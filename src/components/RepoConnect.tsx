@@ -15,7 +15,7 @@ interface RepoConnectProps {
 export function RepoConnect({ open, onClose, onConnect, lang }: RepoConnectProps) {
   const [owner, setOwner] = useState('');
   const [repo, setRepo] = useState('');
-  const [branch, setBranch] = useState('main');
+  const [branch, setBranch] = useState('');
   const [token, setToken] = useState('');
 
   if (!open) return null;
