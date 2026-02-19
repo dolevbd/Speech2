@@ -20,6 +20,7 @@ export async function GET() {
       const upstream = await fetch(`${AGENT_BACKEND_URL}/api/agent`, {
         method: 'GET',
         headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(8000),
       });
       const data = await upstream.json();
       return NextResponse.json({
@@ -28,12 +29,22 @@ export async function GET() {
         backend: AGENT_BACKEND_URL,
       });
     } catch (err) {
+      // Backend unreachable — fall back to local if API key is available
       const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[agent/GET] Backend unreachable (${msg}), checking local fallback`);
+      if (ANTHROPIC_API_KEY) {
+        return NextResponse.json({
+          ok: true,
+          provider: 'anthropic-messages (fallback)',
+          proxy: false,
+          backendDown: true,
+        });
+      }
       return NextResponse.json({
         ok: false,
         proxy: true,
         backend: AGENT_BACKEND_URL,
-        error: `Cannot reach agent backend: ${msg}`,
+        error: `Backend unreachable: ${msg}`,
       }, { status: 502 });
     }
   }
@@ -60,9 +71,36 @@ export async function GET() {
  * 3. Anthropic Messages API fallback: Chat-only, no tool use.
  */
 export async function POST(req: NextRequest) {
-  // ─── Proxy mode: forward to external backend ───
+  // Parse body once — we may need it for both proxy and fallback
+  const bodyText = await req.text();
+  let parsed: {
+    message: string;
+    systemPrompt?: string;
+    repoContext?: { owner: string; repo: string; branch?: string };
+    sessionId?: string;
+    history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  };
+  try {
+    parsed = JSON.parse(bodyText);
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
+
+  const { message, systemPrompt, repoContext, sessionId, history } = parsed;
+
+  if (!message || message.length > 10000) {
+    return NextResponse.json(
+      { error: 'Message is required and must be under 10000 characters' },
+      { status: 400 }
+    );
+  }
+
+  // ─── Proxy mode: forward to external backend, fall back to local on failure ───
   if (AGENT_BACKEND_URL) {
-    return proxyToBackend(req);
+    const proxyResult = await proxyToBackend(bodyText);
+    if (proxyResult !== null) return proxyResult;
+    // proxyResult === null means backend is down — fall through to local mode
+    console.warn('[agent/POST] Backend down, falling back to local Messages API');
   }
 
   // ─── Local mode ───
@@ -71,26 +109,10 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { message, systemPrompt, repoContext, sessionId, history } = (await req.json()) as {
-      message: string;
-      systemPrompt?: string;
-      repoContext?: { owner: string; repo: string; branch?: string };
-      sessionId?: string;
-      history?: Array<{ role: 'user' | 'assistant'; content: string }>;
-    };
-
-    if (!message || message.length > 10000) {
-      return NextResponse.json(
-        { error: 'Message is required and must be under 10000 characters' },
-        { status: 400 }
-      );
-    }
-
     if (USE_AGENT_SDK) {
       try {
         return await handleWithAgentSDK(message, systemPrompt, repoContext, sessionId, history);
       } catch (sdkErr) {
-        // Agent SDK not available (e.g. Vercel serverless) — fall back to Messages API
         console.warn('Agent SDK failed, falling back to Messages API:', sdkErr);
         return handleWithMessagesAPI(message, systemPrompt, repoContext, history);
       }
@@ -103,28 +125,40 @@ export async function POST(req: NextRequest) {
 }
 
 // ─── Proxy to External Backend ───
+// Returns null if the backend is unreachable (caller should fall back to local mode)
 
-async function proxyToBackend(req: NextRequest) {
+async function proxyToBackend(body: string): Promise<NextResponse | null> {
   try {
-    const body = await req.text();
-
     const upstream = await fetch(`${AGENT_BACKEND_URL}/api/agent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!upstream.ok) {
+      // 502/503 = backend down → return null to trigger fallback
+      if (upstream.status === 502 || upstream.status === 503) {
+        return ANTHROPIC_API_KEY ? null : NextResponse.json(
+          { error: 'Agent backend is temporarily unavailable' },
+          { status: 502 }
+        );
+      }
       const errText = await upstream.text().catch(() => '');
+      // Strip HTML from error responses
+      const cleanErr = errText.replace(/<[^>]+>/g, '').trim().slice(0, 200);
       return NextResponse.json(
-        { error: `Backend error (HTTP ${upstream.status}): ${errText}` },
+        { error: `Backend error (${upstream.status}): ${cleanErr || 'Unknown error'}` },
         { status: upstream.status }
       );
     }
 
     // Stream the SSE response from the backend back to the client
     if (!upstream.body) {
-      return NextResponse.json({ error: 'No response body from backend' }, { status: 502 });
+      return ANTHROPIC_API_KEY ? null : NextResponse.json(
+        { error: 'No response body from backend' },
+        { status: 502 }
+      );
     }
 
     const stream = new ReadableStream({
@@ -140,7 +174,7 @@ async function proxyToBackend(req: NextRequest) {
           const errMsg = err instanceof Error ? err.message : String(err);
           const encoder = new TextEncoder();
           controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({ type: 'error', content: `Proxy stream error: ${errMsg}`, timestamp: Date.now() })}\n\n`)
+            encoder.encode(`data: ${JSON.stringify({ type: 'error', content: `Stream error: ${errMsg}`, timestamp: Date.now() })}\n\n`)
           );
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
         } finally {
@@ -157,9 +191,11 @@ async function proxyToBackend(req: NextRequest) {
       },
     });
   } catch (err) {
+    // Network error / timeout → fall back to local if possible
     const msg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json(
-      { error: `Failed to proxy to backend: ${msg}` },
+    console.warn(`[proxy] Backend unreachable: ${msg}`);
+    return ANTHROPIC_API_KEY ? null : NextResponse.json(
+      { error: `Agent backend unreachable` },
       { status: 502 }
     );
   }
@@ -349,12 +385,22 @@ async function handleWithMessagesAPI(
   }
 
   // Build messages array from conversation history
+  // Merge consecutive same-role messages to maintain alternating user/assistant turns
   const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
   if (history && history.length > 0) {
-    // Use the last 20 turns to stay within token limits
-    const recent = history.slice(-20);
-    for (const entry of recent) {
-      messages.push({ role: entry.role, content: entry.content });
+    let lastRole: string | null = null;
+    for (const entry of history.slice(-40)) {
+      if (entry.role === lastRole) {
+        const prev = messages[messages.length - 1];
+        if (prev) prev.content = prev.content + '\n\n' + entry.content;
+      } else {
+        messages.push({ role: entry.role, content: entry.content });
+        lastRole = entry.role;
+      }
+    }
+    // Anthropic API requires first message from 'user'
+    if (messages.length > 0 && messages[0].role !== 'user') {
+      messages.shift();
     }
   } else {
     messages.push({ role: 'user', content: message });
