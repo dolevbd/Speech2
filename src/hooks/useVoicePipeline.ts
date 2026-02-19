@@ -246,6 +246,34 @@ export function useVoicePipeline(settings: Settings) {
     repoCtxRef.current = ctx;
   }, []);
 
+  const sendTextMessage = useCallback((text: string) => {
+    if (!text.trim()) return;
+    let history: ConversationEntry[] = [];
+    setState((s) => {
+      history = [
+        ...s.transcript.map((e) => ({
+          role: (e.role === 'agent' ? 'assistant' : 'user') as ConversationEntry['role'],
+          content: e.text,
+        })),
+        { role: 'user' as const, content: text },
+      ];
+      return {
+        ...s,
+        thinking: true,
+        agentEvents: [],
+        error: null,
+        transcript: [
+          ...s.transcript,
+          { role: 'user', text, timestamp: Date.now() },
+        ],
+      };
+    });
+    agentRef.current?.sendUserMessage(text, {
+      repoContext: repoCtxRef.current,
+      history,
+    });
+  }, []);
+
   const clearTranscript = useCallback(() => {
     setState((s) => ({ ...s, transcript: [], agentEvents: [] }));
   }, []);
@@ -258,5 +286,6 @@ export function useVoicePipeline(settings: Settings) {
     cancelAgent,
     setRepoContext,
     clearTranscript,
+    sendTextMessage,
   };
 }

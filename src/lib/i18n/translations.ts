@@ -36,6 +36,7 @@ const translations = {
     driving: 'מצב נהיגה',
     silenceTimeout: 'השהיית שקט',
     stopSpeaking: 'הקש להשתקה',
+    typeMessage: 'הקלד הודעה...',
     mockWarning: 'מצב דמו — הסוכן לא מחובר לשרת',
   },
   en: {
@@ -73,6 +74,7 @@ const translations = {
     driving: 'Driving mode',
     silenceTimeout: 'Silence timeout',
     stopSpeaking: 'Tap to mute',
+    typeMessage: 'Type a message...',
     mockWarning: 'Demo mode — agent not connected to backend',
   },
 } as const;

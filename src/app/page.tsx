@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSettings } from '@/hooks/useSettings';
 import { useVoicePipeline } from '@/hooks/useVoicePipeline';
 import { MicButton } from '@/components/MicButton';
@@ -18,6 +18,8 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [repoOpen, setRepoOpen] = useState(false);
   const [repoCtx, setRepoCtx] = useState<RepoContext | undefined>();
+  const [textInput, setTextInput] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const lang = settings.uiLang;
 
@@ -38,6 +40,13 @@ export default function Home() {
       pipeline.stopSpeaking();
     }
     pipeline.startListening();
+  };
+
+  const handleTextSend = () => {
+    const msg = textInput.trim();
+    if (!msg || pipeline.thinking) return;
+    pipeline.sendTextMessage(msg);
+    setTextInput('');
   };
 
   return (
@@ -89,6 +98,32 @@ export default function Home() {
           {pipeline.error}
         </div>
       )}
+
+      {/* Text input */}
+      <div className="px-4 py-2">
+        <form
+          onSubmit={(e) => { e.preventDefault(); handleTextSend(); }}
+          className="flex items-center gap-2"
+        >
+          <input
+            ref={inputRef}
+            type="text"
+            value={textInput}
+            onChange={(e) => setTextInput(e.target.value)}
+            placeholder={t(lang, 'typeMessage')}
+            disabled={pipeline.thinking}
+            dir="auto"
+            className="flex-1 bg-surface-light border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-primary/60 disabled:opacity-50"
+          />
+          <button
+            type="submit"
+            disabled={!textInput.trim() || pipeline.thinking}
+            className="px-3 py-2 rounded-lg bg-primary/20 text-primary text-sm font-medium hover:bg-primary/30 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            {t(lang, 'send')}
+          </button>
+        </form>
+      </div>
 
       {/* Bottom area: toggles + mic */}
       <div className="mt-auto px-4 pb-6 pt-4 space-y-4">

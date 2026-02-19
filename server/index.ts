@@ -228,6 +228,8 @@ function ensureRepo(
 
   if (existsSync(path.join(repoDir, '.git'))) {
     try {
+      // Always update remote URL with current token so push works
+      execSync(`git remote set-url origin "${cloneUrl}"`, { cwd: repoDir, stdio: 'pipe', timeout: 5_000 });
       execSync('git fetch --all --prune', { cwd: repoDir, stdio: 'pipe', timeout: 30_000 });
       if (branch) {
         execSync(`git checkout ${branch}`, { cwd: repoDir, stdio: 'pipe', timeout: 10_000 });
@@ -261,6 +263,12 @@ function ensureRepo(
       });
     }
   }
+
+  // Configure git identity for commits
+  try {
+    execSync('git config user.email "voice-agent@claude.ai"', { cwd: repoDir, stdio: 'pipe' });
+    execSync('git config user.name "Voice Agent"', { cwd: repoDir, stdio: 'pipe' });
+  } catch { /* ignore */ }
 
   return repoDir;
 }
