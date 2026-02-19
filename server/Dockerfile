@@ -5,13 +5,16 @@ RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install dependencies
+# Install all dependencies (including devDependencies for tsc build)
 COPY package.json package-lock.json* ./
-RUN npm install --omit=dev
+RUN npm install
 
 # Copy source and build
 COPY . .
 RUN npm run build
+
+# Remove devDependencies after build
+RUN npm prune --omit=dev
 
 EXPOSE 3001
 
