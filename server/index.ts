@@ -197,6 +197,7 @@ app.post('/api/agent', async (req, res) => {
         env: {
           ...(process.env as Record<string, string>),
           ANTHROPIC_API_KEY: ANTHROPIC_API_KEY!,
+          CLAUDECODE: '', // Unset to allow spawning inside containers
           ...(githubToken || GITHUB_TOKEN
             ? { GITHUB_TOKEN: githubToken || GITHUB_TOKEN! }
             : {}),

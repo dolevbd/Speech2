@@ -224,6 +224,7 @@ async function handleWithAgentSDK(
             env: {
               ...process.env as Record<string, string>,
               ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY!,
+              CLAUDECODE: '', // Unset to allow spawning inside containers
             },
           },
         });
