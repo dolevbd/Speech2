@@ -215,6 +215,7 @@ async function handleWithAgentSDK(
             // Full code agent tools
             allowedTools: ['Read', 'Edit', 'Write', 'Bash', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
             permissionMode: 'bypassPermissions',
+            allowDangerouslySkipPermissions: true,
             maxTurns: 15,
             maxBudgetUsd: 1.0,
             includePartialMessages: false,
