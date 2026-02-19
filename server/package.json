@@ -8,7 +8,6 @@
     "dev": "tsx watch index.ts"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.44",
     "cors": "^2.8.5",
     "express": "^4.21.0"
   },
