@@ -186,7 +186,12 @@ export function useVoicePipeline(settings: Settings) {
     const stt = sttRef.current;
     if (!stt) return;
 
-    setState((s) => ({ ...s, listening: true, partialText: '', error: null }));
+    // Stop TTS before opening the mic — prevents agent audio bleeding into recording
+    if (ttsRef.current) {
+      ttsRef.current.stop();
+    }
+
+    setState((s) => ({ ...s, speaking: false, listening: true, partialText: '', error: null }));
 
     stt.start(settingsRef.current.voiceLang, {
       onPartial: (text) => {
@@ -248,6 +253,11 @@ export function useVoicePipeline(settings: Settings) {
 
   const sendTextMessage = useCallback((text: string) => {
     if (!text.trim()) return;
+
+    // Stop any active TTS/STT so text and voice don't clash
+    ttsRef.current?.stop();
+    sttRef.current?.stop();
+
     let history: ConversationEntry[] = [];
     setState((s) => {
       history = [
@@ -259,6 +269,8 @@ export function useVoicePipeline(settings: Settings) {
       ];
       return {
         ...s,
+        speaking: false,
+        listening: false,
         thinking: true,
         agentEvents: [],
         error: null,

@@ -493,8 +493,24 @@ app.post('/api/agent', async (req, res) => {
   // ─── Build initial messages ───
   const messages: Message[] = [];
   if (history && history.length > 0) {
-    for (const entry of history.slice(-20)) {
-      messages.push({ role: entry.role, content: entry.content });
+    // Keep generous window; merge consecutive same-role messages so
+    // the Anthropic API always sees alternating user/assistant turns.
+    let lastRole: string | null = null;
+    for (const entry of history.slice(-40)) {
+      if (entry.role === lastRole) {
+        // Merge into previous message to maintain alternating roles
+        const prev = messages[messages.length - 1];
+        if (prev && typeof prev.content === 'string') {
+          prev.content = prev.content + '\n\n' + entry.content;
+        }
+      } else {
+        messages.push({ role: entry.role, content: entry.content });
+        lastRole = entry.role;
+      }
+    }
+    // Anthropic API requires first message to be from 'user'
+    if (messages.length > 0 && messages[0].role !== 'user') {
+      messages.shift();
     }
   } else {
     messages.push({ role: 'user', content: message });
@@ -511,14 +527,26 @@ app.post('/api/agent', async (req, res) => {
     while (turn < MAX_AGENT_TURNS) {
       turn++;
 
-      const response = await streamAnthropicTurn(system, messages, hasTools, emit);
+      // Wrap emit so streamed text includes all previous turns' text,
+      // keeping the client transcript complete across the agentic loop.
+      const textPrefix = finalText;
+      const turnEmit = (data: Record<string, unknown>) => {
+        if (data.type === 'text' && textPrefix) {
+          emit({ ...data, content: textPrefix + '\n\n' + (data.content as string) });
+        } else {
+          emit(data);
+        }
+      };
 
-      // Collect text from this turn
+      const response = await streamAnthropicTurn(system, messages, hasTools, turnEmit);
+
+      // Collect text from this turn — accumulate across all turns
       const textBlocks = response.contentBlocks.filter(
         (b): b is { type: 'text'; text: string } => b.type === 'text'
       );
       if (textBlocks.length > 0) {
-        finalText = textBlocks.map((b) => b.text).join('\n');
+        const turnText = textBlocks.map((b) => b.text).join('\n');
+        finalText = finalText ? finalText + '\n\n' + turnText : turnText;
       }
 
       // Check if we need to execute tools

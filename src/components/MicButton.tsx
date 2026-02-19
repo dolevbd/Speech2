@@ -18,7 +18,8 @@ export function MicButton({ listening, thinking, speaking, onPress, onStop, onSt
 
   const handleClick = () => {
     if (speaking) {
-      onStopSpeaking();
+      // Interrupt: stop speaking and immediately start listening
+      onPress();
     } else if (active) {
       onStop();
     } else if (!thinking) {
